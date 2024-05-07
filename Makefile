@@ -10,6 +10,15 @@ LDFLAGS = -lpthread
 
 all: proxy
 
+echoclient: echoclient.c csapp.o
+    $(CC) $(CFLAGS) -o echoclient echoclient.c csapp.o $(LIB)
+
+echoserver: echoserveri.c csapp.o echo.o
+    $(CC) $(CFLAGS) -o echoserver echoserveri.c csapp.o $(LIB)
+
+echo.o: echo.c
+    $(CC) $(CFLAGS) -c echo.c
+
 csapp.o: csapp.c csapp.h
 	$(CC) $(CFLAGS) -c csapp.c
 

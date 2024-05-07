@@ -11,7 +11,7 @@
 void doit(int fd);
 void read_requesthdrs(rio_t *rp);
 int parse_uri(char *uri, char *filename, char *cgiargs);
-void serve_static(int fd, char *filename, int filesize);
+void serve_static(int fd, char *filename, int filesize, char *method);
 void get_filetype(char *filename, char *filetype);
 void serve_dynamic(int fd, char *filename, char *cgiargs);
 void clienterror(int fd, char *cause, char *errnum, char *shortmsg,
@@ -79,7 +79,7 @@ void doit(int fd)
   printf("Request headers : \n");
   printf("%s", buf);
   sscanf(buf, "%s %s %s", method, uri, version); 
-  if (strcasecmp(method, "GET")) { // GET이 아니면
+  if (strcasecmp(method, "GET") * strcasecmp(method, "HEAD")) { // GET이 아니면
     clienterror(fd, method, "501", "Not implemented",
             "Tiny does not implement this method");
     return;
@@ -101,7 +101,7 @@ void doit(int fd)
                     "Tiny couldn’t read the file");
         return;
     }
-    serve_static(fd, filename, sbuf.st_size);
+    serve_static(fd, filename, sbuf.st_size, method);
   }
   else { /* Serve dynamic content */
     // 보통 파일이거나 읽기 권한을 가지고 있다면 동적 컨텐츠 클라이언트에게 제공
@@ -169,7 +169,10 @@ int parse_uri(char *uri, char *filename, char *cgiargs)
   }
 }
 
-void serve_static(int fd, char *filename, int filesize)
+/* Homework 11.11 
+* method 인자 추가
+*/
+void serve_static(int fd, char *filename, int filesize, char *method)
 {
   int srcfd;
   char *srcp, filetype[MAXLINE], buf[MAXBUF];
@@ -186,12 +189,22 @@ void serve_static(int fd, char *filename, int filesize)
   printf("Response headers:\n");
   printf("%s", buf);
 
+  /* Homework 11.11 
+  * HEAD 메서드일 시 여기서 반환 (헤더 까지)
+  */
+  if (strcasecmp(method, "HEAD") == 0)
+    return;
+
   /* Send response body to client */
   srcfd = Open(filename, O_RDONLY, 0); // 요청된 파일을 읽기 전용으로 Open
-  srcp = Mmap(0, filesize, PROT_READ, MAP_PRIVATE, srcfd, 0); // 파일을 메모리에 매핑 (srcp 포인터에 매핑)
+  // srcp = Mmap(0, filesize, PROT_READ, MAP_PRIVATE, srcfd, 0); // 파일을 메모리에 매핑 (srcp 포인터에 매핑)
+  /* Homework 11.9 */
+  srcp = (char *)malloc(filesize);
+  rio_readn(srcfd, srcp, filesize);
   Close(srcfd); // 파일을 읽은 후 파일 디스크립터 Close
   Rio_writen(fd, srcp, filesize); // 메모리 매핑된 파일을 클라이언트에게 전송
-  Munmap(srcp, filesize); // 메모리 매핑 해제
+  // Munmap(srcp, filesize); // 메모리 매핑 해제
+  free(srcp);
 
 }
 
@@ -209,6 +222,9 @@ void get_filetype(char *filename, char *filetype)
     strcpy(filetype, "image/png");
   else if (strstr(filename, ".jpg"))
     strcpy(filetype, "image/jpeg");
+  /* Homework 11.7 */
+  else if (strstr(filename, ".mp4")) 
+    strcpy(filetype, "video/mp4");
   else
     strcpy(filetype, "text/plain");
 }
