@@ -1,3 +1,7 @@
 {
-    "pythonIndent.useTabOnHangingIndent": true
+    "pythonIndent.useTabOnHangingIndent": true,
+    "files.associations": {
+        "cache.h": "c",
+        "csapp.h": "c"
+    }
 }
