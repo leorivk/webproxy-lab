@@ -9,6 +9,7 @@ void doit(int fd);
 void parse_uri(char *uri, char *hostname, char *port, char *path);
 void read_requesthdrs(rio_t *rp, void *buf, int serverfd, char *hostname, char *port);
 void clienterror(int fd, char *cause, char *errnum, char *shortmsg, char *longmsg);
+void *thread(void *vargp);
 
 /* You won't lose style points for including this long line in your code */
 static const char *user_agent_hdr =
@@ -20,10 +21,11 @@ const char *aws_ip = "107.22.130.196";
 
 int main(int argc, char **argv) 
 {
-  int listenfd, clientfd;
+  int listenfd, *clientfd;
   char hostname[MAXLINE], port[MAXLINE];
   socklen_t clientlen;
   struct sockaddr_storage clientaddr;
+  pthread_t tid;
 
   /* Check command line args */
   if (argc != 2) {
@@ -35,13 +37,22 @@ int main(int argc, char **argv)
   listenfd = open_listenfd(argv[1]);
   while (1) {
     clientlen = sizeof(clientaddr);
-    clientfd = accept(listenfd, (SA *)&clientaddr, &clientlen); 
+    clientfd = Malloc(sizeof(int));
+    *clientfd = accept(listenfd, (SA *)&clientaddr, &clientlen); 
     getnameinfo((SA *)&clientaddr, clientlen, hostname, MAXLINE, port, MAXLINE, 0);
     printf("Accepted connection from (%s, %s)\n", hostname, port);
-    /* client의 요청을 받아서 end server로 forward */
-    doit(clientfd);  
-    close(clientfd);  
+    Pthread_create(&tid, NULL, thread, clientfd);
   }
+}
+
+void *thread(void *vargp)
+{
+  int clientfd = *((int *)vargp);
+  Pthread_detach(pthread_self());
+  Free(vargp);
+  doit(clientfd);
+  Close(clientfd);
+  return NULL;
 }
 
 void doit(int clientfd) 
