@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include "csapp.h"
+#include "cache.h"
 
 /* Recommended max cache and object sizes */
 #define MAX_CACHE_SIZE 1049000 // 최대 캐시 크기
@@ -60,8 +61,9 @@ void doit(int clientfd)
   int serverfd;
   char request_buf[MAXLINE], response_buf[MAX_OBJECT_SIZE];
   char method[MAXLINE], uri[MAXLINE], path[MAXLINE], hostname[MAXLINE], port[MAXLINE];
+  char *response_ptr;
   rio_t request_rio, response_rio;
-  char *srcp;
+  char *srcp = NULL;
 
   /* Request 1 - 요청 라인 읽기 [Client -> Proxy] */
   rio_readinitb(&request_rio, clientfd); 
@@ -77,6 +79,15 @@ void doit(int clientfd)
   if (strcasecmp(method, "GET") * strcasecmp(method, "HEAD")) { 
     clienterror(clientfd, method, "501", "Not implemented", "Proxy does not implement this method");
     return;
+  }
+
+  // 현재 요청이 캐싱되어 있는 요청(path)인지 확인
+  web_object_t *cachedobj = find_cache(path);
+
+  if (cachedobj) {
+    send_cache(cachedobj, clientfd); // 캐싱되어 있는 객체를 client에게 전송
+    new_cache(cachedobj); // 사용한 웹 객체를 캐시 연결 리스트의 맨 앞으로 갱신
+    return; // 서버로 요청 보내지 않고 통신 종료
   }
 
   printf("Hostname : %s, Port : %s\n", hostname, port);
@@ -102,23 +113,33 @@ void doit(int clientfd)
   rio_writen(clientfd, response_buf, strlen(response_buf)); // 클라이언트에게 응답 라인 보내기
 
   /* Response 2 - 응답 헤더 읽기 & 전송 [Server -> Proxy -> Client] */
-  int content_length;
+  int content_length = 0;
   while (strcmp(response_buf, "\r\n"))
   {
-      Rio_readlineb(&response_rio, response_buf, MAXLINE);
+      rio_readlineb(&response_rio, response_buf, MAXLINE);
       if (strstr(response_buf, "Content-length")) // 응답 바디 수신에 사용하기 위해 바디 사이즈 저장
           content_length = atoi(strchr(response_buf, ':') + 1);
-      Rio_writen(clientfd, response_buf, strlen(response_buf));
+      rio_writen(clientfd, response_buf, strlen(response_buf));
   }
 
   /* Response 3 - 응답 바디 읽기 & 전송 [Server -> Proxy -> Client] */
-  if (content_length)
-  {
-      srcp = malloc(content_length);
-      Rio_readnb(&response_rio, srcp, content_length);
-      Rio_writen(clientfd, srcp, content_length);
-      free(srcp);
+  response_ptr = malloc(content_length);
+  Rio_readnb(&response_rio, srcp, content_length);
+  Rio_writen(clientfd, srcp, content_length);
+
+  // 캐싱 가능한 크기인 경우
+  if (content_length <= MAX_OBJECT_SIZE) {
+    // web_object 구조체 생성
+    web_object_t *web_object = (web_object_t *)calloc(1, sizeof(web_object_t));
+    web_object->response_ptr = response_ptr;
+    web_object->content_length = content_length;
+    strcpy(web_object->path, path);
+    write_cache(web_object); // 캐시 가능한 경우 캐시 연결 리스트에 추가
+  } else {
+    free(response_ptr); // 캐싱하지 않은 경우 메모리 반환
   }
+
+  Close(serverfd);
 }
 
 void clienterror(int fd, char *cause, char *errnum, char *shortmsg, char *longmsg)
@@ -213,7 +234,7 @@ void read_requesthdrs(rio_t *request_rio, void *request_buf, int serverfd, char 
     }
     if (!is_user_agent_exist)
     {
-        sprintf(request_buf, user_agent_hdr);
+        sprintf(request_buf, "%s", user_agent_hdr);
         Rio_writen(serverfd, request_buf, strlen(request_buf));
     }
 
